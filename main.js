@@ -22,6 +22,7 @@ javascript:(function main() {
     /* --- 平台配置中心 --- */
     const AI_PLATFORMS = [
         { name: 'AIstudio', hostname: 'aistudio.google.com', selector: 'ms-autosize-textarea textarea' },
+        { name: 'Gemini', hostname: 'gemini.google.com', selector: 'rich-textarea .ql-editor[contenteditable="true"]' },
         { name: 'ChatGPT', hostname: 'chatgpt.com', selector: '#prompt-textarea' },
         { name: 'DeepSeek', hostname: 'chat.deepseek.com', selector: 'textarea#chat-input' },
         /* --- 其它未适配
@@ -58,18 +59,21 @@ javascript:(function main() {
         "进行分类",
         "要求内容完整",
         "要求商业级别",
-        "给出完整代码",
         "因为内容过多，分多次输出，每次1000行内容，同一个文件放在同一次回复，首次说明分几次",
-        "从aa,bb的角度进行入手，还可以从什么维度进行入手，要求更多的维度"
+        "从aa,bb的角度进行入手，还可以从什么维度进行入手，要求更多的维度",
+        "注释全部使用使用 /* --- xxx--- */"
     ];
     let originalContent = '';
     let itemOrder = [];
+    /* --- 新增状态标志，用于防止同步反馈循环 --- */
+    let isUpdatingByScript = false;
+
 
     /* --- 安全地设置 HTML (Trusted Types) --- */
     let policy;
     try {
         if (window.trustedTypes && window.trustedTypes.createPolicy) {
-            policy = window.trustedTypes.createPolicy('ai-prompt-helper-policy-v12', { createHTML: (string) => string });
+            policy = window.trustedTypes.createPolicy('ai-prompt-helper-policy-v17', { createHTML: (string) => string });
         }
     } catch (e) { console.error('TrustedTypes policy creation failed', e); }
     const setSafeHTML = (element, html) => {
@@ -79,6 +83,29 @@ javascript:(function main() {
             element.innerHTML = html;
         }
     };
+
+    /* --- 新增：安全转义 HTML 辅助函数 --- */
+    const escapeHTML = (str) => {
+        const p = document.createElement('p');
+        p.textContent = str;
+        return p.innerHTML;
+    };
+
+    /* --- 新增：截断并转义文本的辅助函数 --- */
+    const truncateAndEscapeText = (text, maxLines = 5) => {
+        if (text.trim() === '') {
+            return '...';
+        }
+        const lines = text.split('\n');
+        let truncatedText;
+        if (lines.length > maxLines) {
+            truncatedText = lines.slice(0, maxLines).join('\n') + '\n...';
+        } else {
+            truncatedText = text;
+        }
+        return escapeHTML(truncatedText);
+    };
+
 
     /* --- 新增：美观的模态框组件 --- */
     const showModal = ({ title, message, type = 'info', onConfirm, onCancel }) => {
@@ -153,11 +180,10 @@ javascript:(function main() {
 
     /* --- 检查并注入 --- */
     if (!activeTextarea) {
-        /* ---  创建样式表以显示模态框，因为此时主样式表可能还未注入--- */
+        /* --- 创建样式表以显示模态框，因为此时主样式表可能还未注入 --- */
         const modalFallbackStyle = document.createElement('style');
         modalFallbackStyle.innerText = `
-            .gph-modal-overlay { /* ... Fallback styles ... */ }
-            /* ... Include basic modal styles here if needed, or rely on them being added shortly ... */
+            .gph-modal-overlay { /* --- Fallback styles --- */ }
         `;
         document.head.appendChild(modalFallbackStyle);
         showModal({
@@ -165,7 +191,7 @@ javascript:(function main() {
             message: '在当前页面未找到支持的AI输入框。脚本无法运行。<br>支持平台: Gemini, ChatGPT, DeepSeek等。',
             type: 'error'
         });
-        /* ---  确保模态框样式在显示后被注入--- */
+        /* --- 确保模态框样式在显示后被注入 --- */
         const tempStyleSheet = document.createElement("style");
         tempStyleSheet.innerText = `
             .gph-modal-overlay {
@@ -207,9 +233,9 @@ javascript:(function main() {
         return;
     }
 
-    /* --- 样式定义 (支持深色/浅色模式，更新对齐) --- */
+    /* --- 样式定义 --- */
     const styles = `
-    /* --- 变量定义 (FIXED: 应用于主面板和模态框) --- */
+    /* --- 变量定义 --- */
     #gemini-mvp-helper, .gph-modal-overlay {
         --bg-primary: #1e1e1e; --bg-secondary: #2a2a2a; --bg-header: #333; --bg-input: #333;
         --bg-dragging: #555; --text-primary: #f0f0f0; --text-title: #bb86fc; --text-button: #121212;
@@ -236,7 +262,7 @@ javascript:(function main() {
     }
     #gph-mvp-header { padding: 10px 15px; background: var(--bg-header); cursor: move; user-select: none; }
     #gph-mvp-title { margin: 0; font-size: 16px; color: var(--text-title); }
-    #gph-mvp-body { padding: 15px; max-height: 40vh; overflow-y: auto; }
+    #gph-mvp-body { padding: 15px; overflow-y: auto; }
     #gph-mvp-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
     .gph-mvp-item, .gph-original-content-item {
         display: flex; align-items: flex-start;
@@ -248,7 +274,7 @@ javascript:(function main() {
         flex-direction: column;
     }
     .gph-original-content-item strong { font-style: normal; }
-    #gph-original-content-text { font-style: italic; word-wrap: break-word; margin-top: 5px; width: 100%;}
+    #gph-original-content-text { font-style: italic; word-wrap: break-word; margin-top: 5px; width: 100%; white-space: pre-wrap; }
     .gph-drag-handle { cursor: grab; margin-right: 10px; color: var(--text-handle); user-select: none; padding-top: 2px; }
     .gph-mvp-item input[type="checkbox"] { margin-right: 10px; margin-top: 4px; flex-shrink: 0; }
     .gph-mvp-item-text { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
@@ -342,24 +368,39 @@ javascript:(function main() {
     const promptList = document.getElementById('gph-mvp-list');
     const newPromptInput = document.getElementById('gph-new-prompt-input');
     const panelTitle = document.getElementById('gph-mvp-title');
-    panelTitle.textContent = `快捷提示词 (${activePlatform.name})`; /* ---  动态设置标题--- */
+    panelTitle.textContent = `快捷提示词 (${activePlatform.name})`;
 
-    /* ---  --- 辅助函数：根据元素类型设置/获取值 ------ */
+    /* --- 辅助函数：根据元素类型设置/获取值 --- */
     const getInputValue = (element) => {
-        return element.tagName.toLowerCase() === 'textarea' ? element.value : element.textContent;
+        /* --- 针对 ChatGPT/Gemini 的 contenteditable div 进行特殊处理 --- */
+        if (activePlatform && (activePlatform.name === 'ChatGPT' || activePlatform.name === 'Gemini') && element.isContentEditable) {
+            const paragraphs = Array.from(element.querySelectorAll('p'));
+            return paragraphs.map(p => p.textContent).join('\n');
+        }
+        /* --- 对 textarea 和其他默认情况使用 .value 或 .textContent --- */
+        return element.value || element.textContent;
     };
 
     const setInputValue = (element, value) => {
-        if (element.tagName.toLowerCase() === 'textarea') {
-            element.value = value;
+        /* --- 针对 ChatGPT/Gemini 的 contenteditable div 进行特殊处理 --- */
+        if (activePlatform && (activePlatform.name === 'ChatGPT' || activePlatform.name === 'Gemini') && element.isContentEditable) {
+            const htmlValue = value.split('\n').map(line => {
+                if (line.trim() === '') return '<p><br></p>';
+                return `<p>${escapeHTML(line)}</p>`;
+            }).join('');
+            setSafeHTML(element, htmlValue);
         } else {
-            element.textContent = value;
+            /* --- 标准 textarea 直接赋值 --- */
+            element.value = value;
         }
+        /* --- 触发 input 事件，让 AI 平台知道内容已更改 --- */
         element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     };
 
     /* --- 核心功能: 更新 AI 输入框 --- */
     const updateActiveTextarea = () => {
+        isUpdatingByScript = true;
+
         const checkedIds = new Set(
             Array.from(document.querySelectorAll('#gph-mvp-list input[type="checkbox"]:checked'))
                 .map(cb => cb.closest('li').dataset.id)
@@ -385,9 +426,13 @@ javascript:(function main() {
         if (promptsAfter.length > 0) parts.push(promptsAfter.join('\n\n'));
 
         setInputValue(activeTextarea, parts.join('\n\n'));
+
+        requestAnimationFrame(() => {
+            isUpdatingByScript = false;
+        });
     };
 
-    /* --- 核心功能: 渲染提示词列表 (基于 itemOrder) --- */
+    /* --- 核心功能: 渲染提示词列表 --- */
     const renderPrompts = (preserveChecks = false) => {
         let checkedIds = new Set();
         if (preserveChecks) {
@@ -398,6 +443,7 @@ javascript:(function main() {
         while (promptList.firstChild) {
             promptList.removeChild(promptList.firstChild);
         }
+
         itemOrder.forEach(id => {
             const li = document.createElement('li');
             li.dataset.id = id;
@@ -406,7 +452,7 @@ javascript:(function main() {
                 li.setAttribute('draggable', 'false');
                 const contentHTML = `
                     <strong>当前主要内容 (在输入框中编辑)</strong>
-                    <div id="gph-original-content-text">${originalContent.trim() === '' ? '...' : originalContent}</div>
+                    <div id="gph-original-content-text">${truncateAndEscapeText(originalContent, 5)}</div>
                 `;
                 setSafeHTML(li, contentHTML);
             } else {
@@ -417,7 +463,7 @@ javascript:(function main() {
                 const itemHTML = `
                     <span class="gph-drag-handle">::</span>
                     <input type="checkbox" ${checkedIds.has(id) ? 'checked' : ''}>
-                    <span class="gph-mvp-item-text" title="${promptText}">${promptText}</span>
+                    <span class="gph-mvp-item-text" title="${escapeHTML(promptText)}">${escapeHTML(promptText)}</span>
                     <button class="gph-delete-btn">&times;</button>
                 `;
                 setSafeHTML(li, itemHTML);
@@ -434,6 +480,7 @@ javascript:(function main() {
             itemOrder.push(`prompt_${newIndex}`);
             newPromptInput.value = '';
             renderPrompts(true);
+            updateActiveTextarea();
         }
     };
 
@@ -442,20 +489,23 @@ javascript:(function main() {
         itemOrder = itemOrder.filter(id => id !== idToDelete);
         const newPrompts = [];
         const newOrder = [];
-        const oldIdToNewId = {};
+        const oldToNewIndexMap = {};
+
         itemOrder.forEach(id => {
             if (id === 'main_content') {
-                newOrder.push('main_content');
+                newOrder.push(id);
             } else {
                 const oldIndex = parseInt(id.split('_')[1], 10);
-                const newIndex = newPrompts.push(prompts[oldIndex]) - 1;
-                const newId = `prompt_${newIndex}`;
-                newOrder.push(newId);
-                oldIdToNewId[id] = newId;
+                if (oldToNewIndexMap[oldIndex] === undefined) {
+                    oldToNewIndexMap[oldIndex] = newPrompts.push(prompts[oldIndex]) - 1;
+                }
+                newOrder.push(`prompt_${oldToNewIndexMap[oldIndex]}`);
             }
         });
+
         prompts = newPrompts;
         itemOrder = newOrder;
+
         renderPrompts(true);
         updateActiveTextarea();
     };
@@ -502,6 +552,7 @@ javascript:(function main() {
         offsetX = e.clientX - panel.offsetLeft;
         offsetY = e.clientY - panel.offsetTop;
         panel.style.userSelect = 'none';
+        document.body.style.cursor = 'move';
     });
     document.addEventListener('mousemove', (e) => {
         if (!isDraggingPanel) return;
@@ -511,7 +562,9 @@ javascript:(function main() {
     document.addEventListener('mouseup', () => {
         isDraggingPanel = false;
         panel.style.userSelect = 'auto';
+        document.body.style.cursor = 'default';
     });
+
 
     /* --- 事件监听器: 提示词拖拽排序 --- */
     let draggedItem = null;
@@ -578,33 +631,36 @@ javascript:(function main() {
         }
     });
 
-    /* --- 事件监听器: 同步AI输入框的用户手动修改 --- */
-    activeTextarea.addEventListener('input', (e) => {
-        const currentValue = getInputValue(e.target);
-        const checkedPrompts = Array.from(document.querySelectorAll('#gph-mvp-list input[type="checkbox"]:checked'))
-            .map(cb => {
-                const id = cb.closest('li').dataset.id;
-                const index = parseInt(id.split('_')[1], 10);
-                return prompts[index];
-            });
-
-        let tempContent = currentValue;
-        checkedPrompts.forEach(p => {
-            const escapedP = p.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            tempContent = tempContent.replace(new RegExp(escapedP, 'g'), '');
-        });
-
-        originalContent = tempContent.replace(/(\n\n)+/g, '\n\n').trim();
-        const originalContentTextDiv = document.getElementById('gph-original-content-text');
-        if (originalContentTextDiv) {
-            originalContentTextDiv.textContent = originalContent.trim() === '' ? '...' : originalContent;
+    /* --- 新增：核心同步函数，从输入框更新到状态 --- */
+    const syncInputToState = () => {
+        if (isUpdatingByScript) {
+            return;
         }
-    });
+        const currentValue = getInputValue(activeTextarea);
+        const allKnownPrompts = new Set(prompts);
+        const blocks = currentValue.split('\n\n');
+        const userContentBlocks = blocks.filter(block => !allKnownPrompts.has(block.trim()));
+        const newOriginalContent = userContentBlocks.join('\n\n');
 
-    /* --- 备用监听器，用于监控外部清空操作 --- */
+        if (newOriginalContent !== originalContent) {
+            originalContent = newOriginalContent;
+            const originalContentTextDiv = document.getElementById('gph-original-content-text');
+            if (originalContentTextDiv) {
+                const displayHTML = truncateAndEscapeText(originalContent, 5);
+                setSafeHTML(originalContentTextDiv, displayHTML);
+            }
+        }
+    };
+
+    /* --- 事件监听器: 同步AI输入框的用户手动修改 --- */
+    activeTextarea.addEventListener('input', syncInputToState);
+    activeTextarea.addEventListener('blur', syncInputToState); /* --- 新增: 失焦时强制同步 --- */
+
+
+    /* --- 备用监听器(兜底)，用于监控外部清空操作 --- */
     const cleanupInterval = setInterval(() => {
         if (getInputValue(activeTextarea).trim() === '' && originalContent.trim() !== '') {
-            console.log('AI Helper: Detected external textarea clear. Resetting original content state.');
+            console.log('AI Helper: 检测到外部清空操作，重置内容状态。');
             originalContent = '';
             const originalContentTextDiv = document.getElementById('gph-original-content-text');
             if (originalContentTextDiv) {
@@ -613,13 +669,13 @@ javascript:(function main() {
         }
     }, 1000);
 
-    /* --- 优化：将 interval ID 附加到面板上，以便将来清除 --- */
+    /* --- 将 interval ID 附加到面板上，以便将来清除 --- */
     panel.dataset.intervalId = cleanupInterval;
 
     /* --- 初始设置 --- */
-    originalContent = getInputValue(activeTextarea);
+    syncInputToState(); /* --- 优化: 直接调用同步函数进行初始化 --- */
     itemOrder.push('main_content');
     prompts.forEach((_, index) => itemOrder.push(`prompt_${index}`));
     renderPrompts();
-    console.log(`✨ AI 快捷提示词助手 (v12-fix) 在 ${activePlatform.name} 上加载成功！`);
+    console.log(`✨ AI 快捷提示词助手 (v17-sync-fix) 在 ${activePlatform.name} 上加载成功！`);
 })()
