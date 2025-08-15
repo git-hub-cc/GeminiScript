@@ -67,6 +67,6 @@
 5.  在 **网址 (URL)** 字段中，删除所有旧代码，然后粘贴您剪贴板中的新代码。
 6.  保存更改。
 
-## 📄 许可证
+## 📜 开源许可
 
-本项目基于 [MIT 许可证](LICENSE) 发布。
+本项目基于 [MIT License](https://opensource.org/licenses/MIT) 开源。
