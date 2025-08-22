@@ -13,10 +13,10 @@ javascript:(function main() {
     }
 
     const AI_PLATFORMS = [
-        { name: 'AIstudio', hostname: 'aistudio.google.com', selector: 'ms-autosize-textarea textarea' },
-        { name: 'Gemini', hostname: 'gemini.google.com', selector: 'rich-textarea .ql-editor[contenteditable="true"]' },
-        { name: 'ChatGPT', hostname: 'chatgpt.com', selector: '#prompt-textarea' },
-        { name: 'DeepSeek', hostname: 'chat.deepseek.com', selector: 'textarea#chat-input' },
+        {name: 'AIstudio', hostname: 'aistudio.google.com', selector: 'ms-autosize-textarea textarea'},
+        {name: 'Gemini', hostname: 'gemini.google.com', selector: 'rich-textarea .ql-editor[contenteditable="true"]'},
+        {name: 'ChatGPT', hostname: 'chatgpt.com', selector: '#prompt-textarea'},
+        {name: 'DeepSeek', hostname: 'chat.deepseek.com', selector: 'textarea#chat-input'},
     ];
 
     let activePlatform = null;
@@ -37,40 +37,91 @@ javascript:(function main() {
     /* --- 数据结构升级：将扁平的 prompts 数组升级为带分组的 promptGroups --- */
     let promptGroups = [
         {
-            name: "方案",
-            prompts: [
-                "根据项目内容，接下来应该开发什么功能，往商业化。",
+            "name": "分析",
+            "prompts": [
                 "给出建议，本次不输出代码。",
+                "根据项目内容，接下来应该开发什么功能，往商业化。",
                 "从aa,bb的角度进行入手，还可以从什么维度进行入手，要求更多的维度",
+                "实现原理参考下面内容",
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0",
+                "prompt_1",
+                "prompt_2",
+                "prompt_3"
+            ]
+        },
+        {
+            "name": "方案",
+            "prompts": [
                 "当前哪些功能未完成，列出来。",
                 "当前存在哪些问题，列出来。",
-                "实现原理参考下面内容",
                 "检查代码，是否存在未完成的代码，比如部分因为ai输出token限制，输出省略",
                 "当前哪些功能未完成，比如说AI省略的地方，AI说后续完成的地方。",
+                "分析原因给出解决方案，本次不输出代码",
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0",
+                "prompt_1",
+                "prompt_2",
+                "prompt_3",
+                "prompt_4"
             ]
         },
         {
-            name: "文件",
-            prompts: [
-                "对上述功能进行修改，列出需要修改的文件，同一个文件仅列出一次",
-                "对上述问题进行修改，列出需要修改的文件，同一个文件仅列出一次",
-                "将上述功能分为两个阶段，第一个阶段时后端修改，第二个阶段时前端修改，本次输出需要修改哪些文件，本次不输出具体代码。",
+            "name": "文件",
+            "prompts": [
+                "将上述功能分为两个阶段，第一个阶段时后端修改，第二个阶段时前端修改，本次输出需要修改哪些文件",
+                "对上述内容进行修改，列出需要修改的文件，同一个文件仅列出一次",
+                "本次不输出代码"
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0",
+                "prompt_1",
+                "prompt_2",
             ]
         },
         {
-            name: "代码",
-            prompts: [
-                "因为内容过多，分多次输出，每次1000行内容，同一个文件放在同一次回复，首次说明分几次",
+            "name": "代码",
+            "prompts": [
                 "给出第一阶段最终代码，对于没有变化的文件不需要输出。",
-                "给出最终代码，样式与主题相匹配，对于没有变化的文件不需要输出。",
+                "因为内容过多，分多次输出，每次1000行内容，同一个文件放在同一次回复，首次说明分几次",
                 "使用中文回复，注释也使用中文",
                 "注释全部使用使用 /* --- xxx--- */",
+                "避免下述问题",
+                "将上述四个阶段合并后完整输出，仅输出需要修改的文件。"
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0",
+                "prompt_1",
+                "prompt_2",
+                "prompt_3",
+                "prompt_4",
+                "prompt_5"
             ]
         },
         {
-            name: "美化",
-            prompts: [
-                "重写了配色方案",
+            "name": "bug",
+            "prompts": [
+                "分析出原因是什么，这是一个极其复杂的问题，一步步分析后给出解决方案，本次不输出代码。"
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0"
+            ]
+        },
+        {
+            "name": "美化",
+            "prompts": [
+                "重写了配色方案"
+            ],
+            "itemOrder": [
+                "main_content",
+                "prompt_0"
             ]
         }
     ];
@@ -97,9 +148,10 @@ javascript:(function main() {
                 const candidates = ['ai-prompt-helper-policy-v17', 'gph-policy', 'bookmarklet-policy', 'default'];
                 for (const name of candidates) {
                     try {
-                        policy = window.trustedTypes.createPolicy(name, { createHTML: (s) => s });
+                        policy = window.trustedTypes.createPolicy(name, {createHTML: (s) => s});
                         break;
-                    } catch (e) { /* 忽略，尝试下一个候选名 */ }
+                    } catch (e) { /* 忽略，尝试下一个候选名 */
+                    }
                 }
             }
         }
@@ -143,7 +195,7 @@ javascript:(function main() {
         return escapeHTML(truncatedText);
     };
 
-    const showModal = ({ title, message, type = 'info', onConfirm, onCancel }) => {
+    const showModal = ({title, message, type = 'info', onConfirm, onCancel}) => {
         const existingModal = document.getElementById('gph-modal-overlay');
         if (existingModal) existingModal.remove();
 
@@ -171,7 +223,7 @@ javascript:(function main() {
 
         const closeModal = () => {
             overlay.classList.add('fade-out');
-            overlay.addEventListener('animationend', () => overlay.remove(), { once: true });
+            overlay.addEventListener('animationend', () => overlay.remove(), {once: true});
             document.removeEventListener('keydown', keydownHandler);
         };
 
@@ -347,7 +399,7 @@ javascript:(function main() {
         } else {
             element.value = value;
         }
-        element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new Event('input', {bubbles: true, cancelable: true}));
     };
 
     /* --- 核心函数适配：使其操作当前激活的标签页数据 --- */
@@ -379,7 +431,9 @@ javascript:(function main() {
         if (originalContent.trim() !== '') parts.push(originalContent);
         if (promptsAfter.length > 0) parts.push(promptsAfter.join('\n\n'));
         setInputValue(activeTextarea, parts.join('\n\n'));
-        requestAnimationFrame(() => { isUpdatingByScript = false; });
+        requestAnimationFrame(() => {
+            isUpdatingByScript = false;
+        });
     };
 
     /* --- UI渲染：拆分为渲染整个UI（标签+列表）和仅渲染列表 --- */
@@ -483,9 +537,9 @@ javascript:(function main() {
             `let promptGroups = ${JSON.stringify(promptGroups, null, 4)};`
         );
         navigator.clipboard.writeText(`javascript:(${updatedSource})()`).then(() => {
-            showModal({ title: '操作成功', message: '新版书签代码已复制到剪贴板！', type: 'success' });
+            showModal({title: '操作成功', message: '新版书签代码已复制到剪贴板！', type: 'success'});
         }).catch(() => {
-            showModal({ title: '操作失败', message: '无法复制到剪贴板。', type: 'error' });
+            showModal({title: '操作失败', message: '无法复制到剪贴板。', type: 'error'});
         });
     };
 
@@ -545,8 +599,7 @@ javascript:(function main() {
                 title: '请确认', message: '您确定要永久删除这条提示词吗？', type: 'confirm',
                 onConfirm: () => deletePrompt(target.closest('li').dataset.id)
             });
-        }
-        else if (target.id === 'gph-select-all-btn') toggleSelectAll();
+        } else if (target.id === 'gph-select-all-btn') toggleSelectAll();
         else if (target.id === 'gph-copy-btn') copyBookmarkletCode();
     });
 
@@ -576,7 +629,7 @@ javascript:(function main() {
         if (isUpdatingByScript || !activeTextarea) return;
         const currentValue = getInputValue(activeTextarea);
 
-        if ( originalContent.trim() !== '') {
+        if (originalContent.trim() !== '') {
             promptList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
                 cb.checked = false;
             });
